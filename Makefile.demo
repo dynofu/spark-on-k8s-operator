@@ -1,0 +1,65 @@
+SHELL = /bin/bash
+
+APP := examples/spark-pi.yaml
+# APP := examples/spark-py-pi.yaml
+APP_NAME := $(shell yq -r .metadata.name $(APP))
+SPARK_NAMESPACE := spark-jobs
+
+
+.PHONY: init
+init:
+	kubectx minikube-eks
+
+.PHONY: namespace
+namespace:
+	kubens spark-jobs
+
+.PHONY: list
+list:
+	sparkctl -n spark-jobs list
+
+.PHONY: status
+status:
+	# kubectl get sparkapplications.sparkoperator.k8s.io
+	sparkctl -n spark-jobs status $(APP_NAME)
+
+.PHONY: event
+event:
+	sparkctl -n spark-jobs event $(APP_NAME)
+	# kubectl describe sparkapplication $(APP_NAME)
+
+.PHONY: apply
+apply:
+	yq '.metadata.namespace="$(SPARK_NAMESPACE)"' $(APP)  | kubectl apply -f -
+
+.PHONY: delete
+delete:
+	yq '.metadata.namespace="$(SPARK_NAMESPACE)"' $(APP)  | kubectl delete -f -
+
+.PHONY: log
+log:
+	sparkctl -n spark-jobs log $(APP_NAME)
+
+
+# ------------------------------------------------------------------------------
+.PHONY: helm-install
+helm-install: init
+	helm install incubator/sparkoperator --namespace spark-operator \
+        --set sparkJobNamespace=spark-jobs                              \
+        --set enableWebhook=true                                        \
+        --set serviceAccounts.spark.name=spark
+	kubectl create namespace $(SPARK_NAMESPACE)
+	kubectl create serviceaccount spark -n $(SPARK_NAMESPACE)
+	kubectl create clusterrolebinding spark-role \
+	  --clusterrole=edit                         \
+	  --serviceaccount=$(SPARK_NAMESPACE):spark  \
+	  --namespace=$(SPARK_NAMESPACE)
+
+.PHONY: helm-list
+helm-list: init
+	helm list
+
+
+# ------------------------------------------------------------------------------
+.PHONY: demo
+demo: list apply status event
